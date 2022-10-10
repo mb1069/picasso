@@ -18,11 +18,11 @@ import matplotlib.pyplot as _plt
 from . import gaussmle as _gaussmle
 from . import io as _io
 from . import postprocess as _postprocess
-from . import __main__ as main
 import os
 from datetime import datetime
 from sqlalchemy import create_engine
 import pandas as pd
+from picasso import lib
 
 MAX_LOCS = int(1e6)
 
@@ -266,6 +266,11 @@ def _to_photons(spots, camera_info):
 
 
 def get_spots(movie, identifications, box, camera_info):
+    # TODO change this
+    # print(len(identifications))
+    # print(camera_info, box)
+    # identifications = lib.ensure_sanity(identifications, camera_info)
+    # print(len(identifications))
     spots = _cut_spots(movie, identifications, box)
     return _to_photons(spots, camera_info)
 

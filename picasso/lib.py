@@ -129,8 +129,23 @@ def append_to_rec(rec_array, data, name):
     return rec_array
 
 
+def _ensure_sanity_idx(locs, info):
+    idx = _np.argwhere([(_np.all(
+            _np.array([_np.isfinite(locs[_]) for _ in locs.dtype.names]),
+            axis=0,
+        )) & (locs.x > 0) 
+        & (locs.y > 0) 
+        & (locs.x < info[0]["Width"])
+        & (locs.y < info[0]["Height"])
+        & (locs.lpx > 0) 
+        & (locs.lpy > 0)
+        ]).squeeze()[:, 1]
+    return idx
+
 def ensure_sanity(locs, info):
-    # no inf or nan:
+    # idx = _ensure_sanity_idx(locs, info)
+    # # no inf or nan:
+    # locs = locs[idx]
     locs = locs[
         _np.all(
             _np.array([_np.isfinite(locs[_]) for _ in locs.dtype.names]),
