@@ -751,7 +751,7 @@ def _nanotron(args):
 def _localize(args):
     files = args.files
     from glob import glob
-    from .io import load_movie, save_locs, save_info
+    from .io import load_movie, save_locs, save_info, save_datasets
     from .localize import (
         get_spots,
         identify_async,
@@ -767,6 +767,7 @@ def _localize(args):
     import re as _re
     import os as _os
     import yaml as yaml
+    from . import lib as _lib
 
     picasso_logo()
     print("Localize - Parameters:")
@@ -917,13 +918,12 @@ def _localize(args):
                 sleep(0.2)
             print("Identifying in frame {:,} of {:,}".format(n_frames, n_frames))
             ids = identifications_from_futures(futures)
-
+            spots = get_spots(movie, ids, box, camera_info)
+            assert len(ids) == spots.shape[0]
             if args.fit_method == "lq" or args.fit_method == "lq-3d":
-                spots = get_spots(movie, ids, box, camera_info)
                 theta = gausslq.fit_spots_parallel(spots, asynch=False)
                 locs = gausslq.locs_from_fits(ids, theta, box, args.gain)
             elif args.fit_method == "lq-gpu" or args.fit_method == "lq-gpu-3d":
-                spots = get_spots(movie, ids, box, camera_info)
                 theta = gausslq.fit_spots_gpufit(spots)
                 em = camera_info["gain"] > 1
                 locs = gausslq.locs_from_fits_gpufit(ids, theta, box, em)
@@ -942,7 +942,6 @@ def _localize(args):
                 locs = locs_from_fits(ids, thetas, CRLBs, likelihoods, iterations, box)
 
             elif args.fit_method == "avg":
-                spots = get_spots(movie, ids, box, camera_info)
                 theta = avgroi.fit_spots_parallel(spots, asynch=False)
                 locs = avgroi.locs_from_fits(ids, theta, box, args.gain)
 
@@ -993,8 +992,23 @@ def _localize(args):
                 sfx = ""
 
             out_path = f"{base}{sfx}_locs.hdf5"
+
+            idx = _lib._ensure_sanity_idx(locs, info)
+            print('A', spots.shape)
+            print(idx.shape)
+            spots = spots[idx]
+            print('B', spots.shape)
+
+            print(len(locs), len(spots))
             save_locs(out_path, locs, info)
             print("File saved to {}".format(out_path))
+
+
+            # TODO finish
+            out_path = f"{base}{sfx}_spots.hdf5"
+            save_datasets(out_path, info, spots=spots)
+            print("File saved to {}".format(out_path))
+
 
             if hasattr(args, "database"):
                 CHECK_DB = args.database
