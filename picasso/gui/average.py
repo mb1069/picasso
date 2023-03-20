@@ -11,6 +11,7 @@ import os.path
 import sys
 import time
 import traceback
+import importlib, pkgutil
 from multiprocessing import sharedctypes
 
 import matplotlib.pyplot as plt
@@ -106,7 +107,9 @@ class Worker(QtCore.QThread):
         n_groups = self.group_index.shape[0]
         a_step = np.arcsin(1 / (self.oversampling * self.r))
         angles = np.arange(0, 2 * np.pi, a_step)
-        n_workers = max(1, int(0.75 * multiprocessing.cpu_count()))
+        n_workers = min(
+            60, max(1, int(0.75 * multiprocessing.cpu_count()))
+        ) # Python crashes when using >64 cores
         manager = multiprocessing.Manager()
         counter = manager.Value("d", 0)
         lock = manager.Lock()
@@ -268,7 +271,9 @@ class View(QtWidgets.QLabel):
             pass
         x = sharedctypes.RawArray("f", self.locs.x)
         y = sharedctypes.RawArray("f", self.locs.y)
-        n_workers = max(1, int(0.75 * multiprocessing.cpu_count()))
+        n_workers = min(
+            60, max(1, int(0.75 * multiprocessing.cpu_count()))
+        ) # Python crashes when using >64 cores
         pool = multiprocessing.Pool(n_workers, init_pool, (x, y, self.group_index))
         self.window.status_bar.showMessage("Ready for processing!")
         status.close()
@@ -372,6 +377,23 @@ def main():
 
     app = QtWidgets.QApplication(sys.argv)
     window = Window()
+
+    from . import plugins
+
+    def iter_namespace(pkg):
+        return pkgutil.iter_modules(pkg.__path__, pkg.__name__ + ".")
+
+    plugins = [
+        importlib.import_module(name)
+        for finder, name, ispkg
+        in iter_namespace(plugins)
+    ]
+
+    for plugin in plugins:
+        p = plugin.Plugin(window)
+        if p.name == "average":
+            p.execute()  
+              
     window.show()
 
     def excepthook(type, value, tback):

@@ -8,6 +8,7 @@
     :copyright: Copyright (c) 2016-2018 Jungmann Lab, MPI of Biochemistry
 """
 import numpy as _np
+import dask.array as _da
 import numba as _numba
 import multiprocessing as _multiprocessing
 import ctypes as _ctypes
@@ -20,6 +21,7 @@ from . import io as _io
 from . import postprocess as _postprocess
 import os
 from datetime import datetime
+import time
 from sqlalchemy import create_engine
 import pandas as pd
 from picasso import lib
@@ -126,18 +128,41 @@ def identify_in_image(image, minimum_ng, box):
 
 
 def identify_in_frame(frame, minimum_ng, box, roi=None):
+    # print('start identifying in frame')
     if roi is not None:
         frame = frame[roi[0][0] : roi[1][0], roi[0][1] : roi[1][1]]
     image = _np.float32(frame)  # otherwise numba goes crazy
+    # print('start identifying in image')
     y, x, net_gradient = identify_in_image(image, minimum_ng, box)
+    # print('done identifying in image')
     if roi is not None:
         y += roi[0][0]
         x += roi[0][1]
+    # print('done identifying in frame')
     return y, x, net_gradient
 
+def identify_frame(frame, minimum_ng, box, frame_number, roi=None, resultqueue=None):
+    # print('start identifying frame')
+    y, x, net_gradient = identify_in_frame(frame, minimum_ng, box, roi)
+    # print('got result of "in frame"')
+    # print('result x', x)
+    # print('len {:d}'.format(len(x)))
+    frame = frame_number * _np.ones(len(x))
+    # print('done identifying frame')
+    result = _np.rec.array(
+        (frame, x, y, net_gradient),
+        dtype=[("frame", "i"), ("x", "i"), ("y", "i"), ("net_gradient", "f4")],
+    )
+    if resultqueue is not None:
+        resultqueue.put(result)
+    return result
 
-def identify_by_frame_number(movie, minimum_ng, box, frame_number, roi=None):
-    frame = movie[frame_number]
+def identify_by_frame_number(movie, minimum_ng, box, frame_number, roi=None, lock=None):
+    if lock is not None:
+        with lock:
+            frame = movie[frame_number]
+    else:
+        frame = movie[frame_number]
     y, x, net_gradient = identify_in_frame(frame, minimum_ng, box, roi)
     frame = frame_number * _np.ones(len(x))
     return _np.rec.array(
@@ -156,7 +181,7 @@ def _identify_worker(movie, current, minimum_ng, box, roi, lock):
                 return identifications
             current[0] += 1
         identifications.append(
-            identify_by_frame_number(movie, minimum_ng, box, index, roi)
+            identify_by_frame_number(movie, minimum_ng, box, index, roi, lock)
         )
     return identifications
 
@@ -170,7 +195,7 @@ def identifications_from_futures(futures):
 
 
 def identify_async(movie, minimum_ng, box, roi=None):
-    "Use the user settings to define the number of workers that are being used"
+    # Use the user settings to define the number of workers that are being used
     settings = _io.load_user_settings()
 
     cpu_utilization = settings["Localize"]["cpu_utilization"]
@@ -183,11 +208,13 @@ def identify_async(movie, minimum_ng, box, roi=None):
     settings["Localize"]["cpu_utilization"] = cpu_utilization
     _io.save_user_settings(settings)
 
-    n_workers = max(1, int(cpu_utilization * _multiprocessing.cpu_count()))
+    n_workers = min(
+        60, max(1, int(0.75 * _multiprocessing.cpu_count()))
+    ) # Python crashes when using >64 cores
 
+    lock = _threading.Lock()
     current = [0]
     executor = _ThreadPoolExecutor(n_workers)
-    lock = _threading.Lock()
     f = [
         executor.submit(_identify_worker, movie, current, minimum_ng, box, roi, lock)
         for _ in range(n_workers)
@@ -197,6 +224,7 @@ def identify_async(movie, minimum_ng, box, roi=None):
 
 
 def identify(movie, minimum_ng, box, threaded=True):
+    print('threaded', threaded)
     if threaded:
         current, futures = identify_async(movie, minimum_ng, box)
         identifications = [_.result() for _ in futures]
@@ -232,27 +260,103 @@ def _cut_spots_frame(frame, frame_number, ids_frame, ids_x, ids_y, r, start, N, 
     return j
 
 
+@_numba.jit(nopython=True, cache=False)
+def _cut_spots_daskmov(movie, l_mov, ids_frame, ids_x, ids_y, box, spots):
+    """Cuts the spots out of a movie frame by frame.
+
+    Args:
+        movie : 3D array (t, x, y)
+            the image data (can be dask or numpy array)
+        l_mov : 1D array, len 1
+            lenght of the movie (=t); in array to satisfy the combination of
+            range() and guvectorization
+        ids_frame, ids_x, ids_y : 1D array (k)
+            spot positions in the image data. Length: number of spots
+            identified
+        box : uneven int
+            the cut spot box size
+        spots : 3D array (k, box, box)
+            the cut spots
+    Returns:
+        spots : as above
+            the image-data filled spots
+    """
+    r = int(box / 2)
+    N = len(ids_frame)
+    start = 0
+    for frame_number in range(l_mov[0]):
+        frame = movie[frame_number, :, :]
+        start = _cut_spots_frame(
+            frame,
+            frame_number,
+            ids_frame,
+            ids_x,
+            ids_y,
+            r,
+            start,
+            N,
+            spots,
+        )
+    return spots
+
+
+def _cut_spots_framebyframe(movie, ids_frame, ids_x, ids_y, box, spots):
+    """Cuts the spots out of a movie frame by frame.
+
+    Args:
+        movie : 3D array (t, x, y)
+            the image data (can be dask or numpy array)
+        ids_frame, ids_x, ids_y : 1D array (k)
+            spot positions in the image data. Length: number of spots
+            identified
+        box : uneven int
+            the cut spot box size
+        spots : 3D array (k, box, box)
+            the cut spots
+    Returns:
+        spots : as above
+            the image-data filled spots
+    """
+    r = int(box / 2)
+    N = len(ids_frame)
+    start = 0
+    for frame_number, frame in enumerate(movie):
+        start = _cut_spots_frame(
+            frame,
+            frame_number,
+            ids_frame,
+            ids_x,
+            ids_y,
+            r,
+            start,
+            N,
+            spots,
+        )
+    return spots
+
+
 def _cut_spots(movie, ids, box):
+    N = len(ids.frame)
     if isinstance(movie, _np.ndarray):
         return _cut_spots_numba(movie, ids.frame, ids.x, ids.y, box)
+    # elif isinstance(movie, _io.ND2Movie):
+    elif movie.use_dask:
+        """ Assumes that identifications are in order of frames! """
+        spots = _np.zeros((N, box, box), dtype=movie.dtype)
+        spots = _da.apply_gufunc(
+            _cut_spots_daskmov,
+            '(p,n,m),(b),(k),(k),(k),(),(k,l,l)->(k,l,l)',
+            movie.data, _np.array([len(movie)]), ids.frame, ids.x, ids.y, box, spots,
+            output_dtypes=[movie.dtype], allow_rechunk=True).compute()
+        return spots
     else:
         """Assumes that identifications are in order of frames!"""
+        
         r = int(box / 2)
         N = len(ids.frame)
         spots = _np.zeros((N, box, box), dtype=movie.dtype)
-        start = 0
-        for frame_number, frame in enumerate(movie):
-            start = _cut_spots_frame(
-                frame,
-                frame_number,
-                ids.frame,
-                ids.x,
-                ids.y,
-                r,
-                start,
-                N,
-                spots,
-            )
+        spots = _cut_spots_framebyframe(
+            movie, ids.frame, ids.x, ids.y, box, spots)
         return spots
 
 
@@ -262,7 +366,8 @@ def _to_photons(spots, camera_info):
     sensitivity = camera_info["sensitivity"]
     gain = camera_info["gain"]
     qe = camera_info["qe"]
-    return (spots - baseline) * sensitivity / (gain * qe)
+    # since v0.5.8: remove quantum efficiency to better reflect precision
+    return (spots - baseline) * sensitivity / (gain)
 
 
 def get_spots(movie, identifications, box, camera_info):

@@ -112,7 +112,9 @@ def _compute_model(theta, grid, size, model_x, model_y, model):
     model_x[:] = _gaussian(
         theta[0], theta[4], grid
     )  # sx and sy are wrong with integrated gaussian
-    model_y[:] = _gaussian(theta[1], theta[5], grid)
+    model_y[:] = _gaussian(
+        theta[1], theta[5], grid
+    )
     _outer(model_y, model_x, size, model, theta[2], theta[3])
     return model
 
@@ -160,7 +162,9 @@ def fit_spots(spots):
 
 
 def fit_spots_parallel(spots, asynch=False):
-    n_workers = max(1, int(0.75 * _multiprocessing.cpu_count()))
+    n_workers = min(
+        60, max(1, int(0.75 * _multiprocessing.cpu_count()))
+    ) # Python crashes when using >64 cores
     n_spots = len(spots)
     n_tasks = 100 * n_workers
     spots_per_task = [
