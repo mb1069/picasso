@@ -21,8 +21,7 @@ from .. import io, localize, gausslq, gaussmle, zfit, lib, CONFIG, avgroi
 from collections import UserDict
 
 try:
-    from pygpufit import gpufit as gf
-
+    from pygpufit import gpufit
     gpufit_installed = True
 except ImportError:
     gpufit_installed = False
@@ -41,8 +40,8 @@ class RubberBand(QtWidgets.QRubberBand):
         color = QtGui.QColor(QtCore.Qt.blue)
         painter.setPen(QtGui.QPen(color))
         rect = event.rect()
-        rect.setHeight(rect.height() - 1)
-        rect.setWidth(rect.width() - 1)
+        rect.setHeight(int(rect.height() - 1))
+        rect.setWidth(int(rect.width() - 1))
         painter.drawRect(rect)
 
 
@@ -58,9 +57,10 @@ class View(QtWidgets.QGraphicsView):
         self.vscrollbar = self.verticalScrollBar()
         self.rubberband = RubberBand(self)
         self.roi = None
+        self.numeric_roi = False
 
     def mousePressEvent(self, event):
-        if event.button() == QtCore.Qt.LeftButton:
+        if event.button() == QtCore.Qt.LeftButton and not self.numeric_roi:
             self.roi_origin = QtCore.QPoint(event.pos())
             self.rubberband.setGeometry(QtCore.QRect(self.roi_origin, QtCore.QSize()))
             self.rubberband.show()
@@ -74,7 +74,7 @@ class View(QtWidgets.QGraphicsView):
             event.ignore()
 
     def mouseMoveEvent(self, event):
-        if event.buttons() == QtCore.Qt.LeftButton:
+        if event.buttons() == QtCore.Qt.LeftButton and not self.numeric_roi:
             self.rubberband.setGeometry(QtCore.QRect(self.roi_origin, event.pos()))
         if self.pan:
             self.hscrollbar.setValue(
@@ -90,19 +90,25 @@ class View(QtWidgets.QGraphicsView):
             event.ignore()
 
     def mouseReleaseEvent(self, event):
-        if event.button() == QtCore.Qt.LeftButton:
+        if event.button() == QtCore.Qt.LeftButton and not self.numeric_roi:
             self.roi_end = QtCore.QPoint(event.pos())
             dx = abs(self.roi_end.x() - self.roi_origin.x())
             dy = abs(self.roi_end.y() - self.roi_origin.y())
             if dx < 10 or dy < 10:
                 self.roi = None
                 self.rubberband.hide()
+                self.window.parameters_dialog.roi_edit.setText("")
             else:
                 roi_points = (
                     self.mapToScene(self.roi_origin),
                     self.mapToScene(self.roi_end),
                 )
-                self.roi = list([[int(_.y()), int(_.x())] for _ in roi_points])
+                self.roi = [[int(_.y()), int(_.x())] for _ in roi_points]
+                (y_min, x_min), (y_max, x_max) = self.roi
+                self.window.parameters_dialog.roi_edit.setText(
+                    f"{y_min},{x_min},{y_max},{x_max}"
+                )
+                self.numeric_roi = False
             self.window.draw_frame()
         elif event.button() == QtCore.Qt.RightButton:
             self.pan = False
@@ -149,8 +155,8 @@ class Scene(QtWidgets.QGraphicsScene):
             event.ignore()
 
     def dropEvent(self, event):
-        """Loads  when dropped into the scene"""
-        path, extension = self.path_from_drop(event)
+        """Loads when dropped into the scene."""
+        path, ext = self.path_from_drop(event)
         self.window.open(path)
 
 
@@ -177,7 +183,7 @@ class OddSpinBox(QtWidgets.QSpinBox):
     def on_editing_finished(self):
         value = self.value()
         if value % 2 == 0:
-            self.setValue(value + 1)
+            self.setValue(int(value + 1))
 
 
 class CamSettingComboBox(QtWidgets.QComboBox):
@@ -207,11 +213,12 @@ class CamSettingComboBox(QtWidgets.QComboBox):
         sensitivity = CONFIG["Cameras"][self.camera]["Sensitivity"]
         for i in range(self.index + 1):
             sensitivity = sensitivity[cam_combos[i].currentText()]
-        target = cam_combos[self.index + 1]
-        target.blockSignals(True)
-        target.clear()
-        target.blockSignals(False)
-        target.addItems(sorted(list(sensitivity.keys())))
+        if len(cam_combos) > self.index + 1:
+            target = cam_combos[self.index + 1]
+            target.blockSignals(True)
+            target.clear()
+            target.blockSignals(False)
+            target.addItems(sorted(list(sensitivity.keys())))
 
 
 class CamSettingComboBoxDict(UserDict):
@@ -328,15 +335,15 @@ class PromptInfoDialog(QtWidgets.QDialog):
         grid.addWidget(self.dtype, 1, 1)
         grid.addWidget(QtWidgets.QLabel("Frames:"), 2, 0)
         self.frames = QtWidgets.QSpinBox()
-        self.frames.setRange(1, 1e9)
+        self.frames.setRange(1, int(1e9))
         grid.addWidget(self.frames, 2, 1)
         grid.addWidget(QtWidgets.QLabel("Height:"), 3, 0)
         self.movie_height = QtWidgets.QSpinBox()
-        self.movie_height.setRange(1, 1e9)
+        self.movie_height.setRange(1, int(1e9))
         grid.addWidget(self.movie_height, 3, 1)
         grid.addWidget(QtWidgets.QLabel("Width"), 4, 0)
         self.movie_width = QtWidgets.QSpinBox()
-        self.movie_width.setRange(1, 1e9)
+        self.movie_width.setRange(1, int(1e9))
         grid.addWidget(self.movie_width, 4, 1)
         self.save = QtWidgets.QCheckBox("Save info to yaml file")
         self.save.setChecked(True)
@@ -432,7 +439,7 @@ class ParametersDialog(QtWidgets.QDialog):
         # Min. Net Gradient
         identification_grid.addWidget(QtWidgets.QLabel("Min.  Net Gradient:"), 1, 0)
         self.mng_spinbox = QtWidgets.QSpinBox()
-        self.mng_spinbox.setRange(0, 1e9)
+        self.mng_spinbox.setRange(0, int(1e9))
         self.mng_spinbox.setValue(DEFAULT_PARAMETERS["Min. Net Gradient"])
         self.mng_spinbox.setKeyboardTracking(False)
         self.mng_spinbox.valueChanged.connect(self.on_mng_spinbox_changed)
@@ -469,20 +476,17 @@ class ParametersDialog(QtWidgets.QDialog):
         self.mng_max_spinbox.valueChanged.connect(self.on_mng_max_changed)
         hbox.addWidget(self.mng_max_spinbox)
 
-        # # ROI
-        # identification_grid.addWidget(
-        #     QtWidgets.QLabel("ROI (y_min,x_min,y_max,x_max):"), 4, 0,
-        # )
-        # self.roi_edit = QtWidgets.QLineEdit()
-        # regex = r"\d+,\d+,\d+,\d+" # regex for 4 integers separated by commas
-        # validator = QtGui.QRegExpValidator(QtCore.QRegExp(regex))
-        # self.roi_edit.setValidator(validator)
-        # self.roi_edit.editingFinished.connect(self.on_roi_edit_finished)
-        # identification_grid.addWidget(self.roi_edit, 4, 1)
-        # #TODO: signal when roi_edit is changed: change self.roi and draw rectangle?
-        # #TODO: validate that the input numbers lie within the whole FOV
-        # #TODO: when roi is changed with mouseReleaseEvent in View, change the values displayed here!
-        # #TODO: what about nan?
+        # ROI
+        identification_grid.addWidget(
+            QtWidgets.QLabel("ROI (y_min,x_min,y_max,x_max):"), 5, 0,
+        )
+        self.roi_edit = QtWidgets.QLineEdit()
+        regex = r"\d+,\d+,\d+,\d+" # regex for 4 integers separated by commas
+        validator = QtGui.QRegExpValidator(QtCore.QRegExp(regex))
+        self.roi_edit.setValidator(validator)
+        self.roi_edit.editingFinished.connect(self.on_roi_edit_finished)
+        self.roi_edit.textChanged.connect(self.on_roi_edit_changed)
+        identification_grid.addWidget(self.roi_edit, 5, 1)
 
         self.preview_checkbox = QtWidgets.QCheckBox("Preview")
         self.preview_checkbox.setTristate(False)
@@ -569,7 +573,7 @@ class ParametersDialog(QtWidgets.QDialog):
         # EM Gain
         photon_grid.addWidget(QtWidgets.QLabel("EM Gain:"), 0, 0)
         self.gain = QtWidgets.QSpinBox()
-        self.gain.setRange(1, 1e6)
+        self.gain.setRange(1, int(1e6))
         self.gain.setValue(1)
         photon_grid.addWidget(self.gain, 0, 1)
 
@@ -595,7 +599,7 @@ class ParametersDialog(QtWidgets.QDialog):
         photon_grid.addWidget(QtWidgets.QLabel("Quantum Efficiency:"), 3, 0)
         self.qe = QtWidgets.QDoubleSpinBox()
         self.qe.setRange(0, 1)
-        self.qe.setValue(0.9)
+        self.qe.setValue(1)
         self.qe.setDecimals(2)
         self.qe.setSingleStep(0.1)
         photon_grid.addWidget(self.qe, 3, 1)
@@ -637,7 +641,7 @@ class ParametersDialog(QtWidgets.QDialog):
         mle_grid.addWidget(self.convergence_criterion, 0, 1)
         mle_grid.addWidget(QtWidgets.QLabel("Max. iterations:"), 1, 0)
         self.max_it = QtWidgets.QSpinBox()
-        self.max_it.setRange(1, 1e6)
+        self.max_it.setRange(1, int(1e6))
         self.max_it.setValue(1000)
         mle_grid.addWidget(self.max_it, 1, 1)
 
@@ -670,10 +674,7 @@ class ParametersDialog(QtWidgets.QDialog):
         z_grid = QtWidgets.QGridLayout(z_groupbox)
         z_grid.addWidget(
             QtWidgets.QLabel("Non-integrated Gaussian fitting is recommend! (LQ)"),
-            0,
-            0,
-            1,
-            2,
+            0, 0, 1, 2,
         )
         load_z_calib = QtWidgets.QPushButton("Load calibration")
         load_z_calib.setAutoDefault(False)
@@ -767,28 +768,36 @@ class ParametersDialog(QtWidgets.QDialog):
         self.quality_check.setEnabled(False)
         self.quality_check.setVisible(True)
 
-        for idx, _ in enumerate(self.quality_grid_labels):
+        for _ in self.quality_grid_labels:
             _.setVisible(False)
 
-        for idx, _ in enumerate(self.quality_grid_values):
+        for _ in self.quality_grid_values:
             _.setVisible(False)
             _.setText("")
-    
-    # def on_roi_edit_finished(self):
-    #     from icecream import ic # TODO:delete
-    #     text = self.roi_edit.text().split(",")
-    #     y_min, x_min, y_max, x_max = [int(_) for _ in text]
-    #     # update roi
-    #     self.window.view.roi = [[y_min, x_min], [y_max, x_max]]
-    #     # draw rectangle TODO use self.window.view.rubberband
-    #     self.window.view.rubberband.setGeometry(
-    #         QtCore.QRect(x_min, y_min, x_max-x_min, y_max-y_min)
-    #     )
-    #     self.window.view.rubberband.show()
-    #     #TOOD: incorrect indeces, (wrong place for the box,)
-    #     #TODO: box dispaperast afte rcllicking on View
-    #     #TODO: use map to scene??, idk
-    #     self.window.draw_frame()
+
+    def on_roi_edit_changed(self):
+        if self.roi_edit.text() == "":
+            self.window.view.numeric_roi = False            
+            self.window.view.roi = None
+            self.window.view.rubberband.hide()
+            self.window.draw_frame()
+
+    def on_roi_edit_finished(self):
+        text = self.roi_edit.text().split(",")
+        y_min, x_min, y_max, x_max = [int(_) for _ in text]
+        # update roi
+        self.window.view.roi = [[y_min, x_min], [y_max, x_max]]
+        # draw the rectangle roi
+        topleft_xy = self.window.view.mapFromScene(x_min, y_min)
+        bottomright_xy = self.window.view.mapFromScene(x_max, y_max)
+        topleft = QtCore.QPoint(topleft_xy.x(), topleft_xy.y())
+        bottomright = QtCore.QPoint(bottomright_xy.x(), bottomright_xy.y())
+        self.window.view.rubberband.setGeometry(
+            QtCore.QRect(topleft, bottomright)
+        )
+        self.window.view.rubberband.show()
+        self.window.draw_frame()
+        self.window.view.numeric_roi = True
 
     def on_fit_method_changed(self, state):
         if self.fit_method.currentText() == "LQ, Gaussian":
@@ -994,14 +1003,14 @@ class ContrastDialog(QtWidgets.QDialog):
         grid.addWidget(black_label, 0, 0)
         self.black_spinbox = QtWidgets.QSpinBox()
         self.black_spinbox.setKeyboardTracking(False)
-        self.black_spinbox.setRange(0, 999999)
+        self.black_spinbox.setRange(1, 999999)
         self.black_spinbox.valueChanged.connect(self.on_contrast_changed)
         grid.addWidget(self.black_spinbox, 0, 1)
         white_label = QtWidgets.QLabel("White:")
         grid.addWidget(white_label, 1, 0)
         self.white_spinbox = QtWidgets.QSpinBox()
         self.white_spinbox.setKeyboardTracking(False)
-        self.white_spinbox.setRange(0, 999999)
+        self.white_spinbox.setRange(1, 999999)
         self.white_spinbox.valueChanged.connect(self.on_contrast_changed)
         grid.addWidget(self.white_spinbox, 1, 1)
         self.auto_checkbox = QtWidgets.QCheckBox("Auto")
@@ -1228,9 +1237,9 @@ class Window(QtWidgets.QMainWindow):
             "Open image sequence", 
             directory=dir, 
             filter=(
-                "All supported formats (*.raw *.tif *.tiff *.nd2)"
+                "All supported formats (*.raw *.tif *.tif *.nd2 *.ims)"
                 ";;Raw files (*.raw)"
-                ";;Tiff images (*.tif *.tiff)"
+                ";;Tif images (*.tif)"
                 ";;ImaRIS IMS (*.ims)"
                 ";;Nd2 files (*.nd2);;"
             )
@@ -1302,8 +1311,8 @@ class Window(QtWidgets.QMainWindow):
 
             for element in self._picks:
                 # drifted:
-                xloc = np.ones((maxframes,), dtype=np.float) * element[0]
-                yloc = np.ones((maxframes,), dtype=np.float) * element[1]
+                xloc = np.ones((maxframes,), dtype=float) * element[0]
+                yloc = np.ones((maxframes,), dtype=float) * element[1]
                 if driftpath:
                     xloc += drift[:, 1]
                     yloc += drift[:, 0]
@@ -1378,8 +1387,6 @@ class Window(QtWidgets.QMainWindow):
         try:
             locs, info = io.load_locs(path)
 
-            print(locs)
-            print(info)
             max_frames = int(self.info[0]["Frames"])
             n_frames, ok = QtWidgets.QInputDialog.getInteger(
                 self,
@@ -1397,8 +1404,8 @@ class Window(QtWidgets.QMainWindow):
             for element in locs:
                 currframe = element["frame"]
                 if currframe > n_frames and currframe < (max_frames - n_frames):
-                    xloc = np.ones((2 * n_frames + 1,), dtype=np.float) * element["x"]
-                    yloc = np.ones((2 * n_frames + 1,), dtype=np.float) * element["y"]
+                    xloc = np.ones((2 * n_frames + 1,), dtype=float) * element["x"]
+                    yloc = np.ones((2 * n_frames + 1,), dtype=float) * element["y"]
                     frames = np.arange(currframe - n_frames, currframe + n_frames + 1)
                     gradient = np.ones(2 * n_frames + 1) + 100
                     n_id_all = np.ones(2 * n_frames + 1) + n_id

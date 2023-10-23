@@ -10,14 +10,10 @@
 
 import numpy as _np
 import numba as _numba
-import math as _math
-
-from sklearn.cluster import DBSCAN as _DBSCAN
 
 from scipy import interpolate as _interpolate
 from scipy.special import iv as _iv
 from scipy.spatial import distance
-# from icecream import ic
 
 from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
 import multiprocessing as _multiprocessing
@@ -28,9 +24,7 @@ from collections import OrderedDict as _OrderedDict
 from . import lib as _lib
 from . import render as _render
 from . import imageprocess as _imageprocess
-from . import clusterer as _clusterer
 from threading import Thread as _Thread
-import time as _time
 from tqdm import tqdm as _tqdm
 from tqdm import trange as _trange
 from numpy.lib.recfunctions import stack_arrays
@@ -171,8 +165,11 @@ def pick_similar(
                         picked_locs_xy = _locs_at(
                             x_test, y_test, block_locs_xy, r
                         )
-                        x_test = _np.mean(picked_locs_xy[0])
-                        y_test = _np.mean(picked_locs_xy[1])
+                        if picked_locs_xy.shape[1] > 1:
+                            x_test = _np.mean(picked_locs_xy[0])
+                            y_test = _np.mean(picked_locs_xy[1])
+                        else:
+                            break
                     if _np.all(
                         (x_similar - x_test) ** 2
                         + (y_similar - y_test) ** 2
@@ -902,7 +899,7 @@ def _get_next_loc_index_in_link_group(
                 if dx2 <= d_max_2:
                     dy2 = (current_y - y[j]) ** 2
                     if dy2 <= d_max_2:
-                        if _np.sqrt(dx2 + dy2) <= d_max:
+                        if dx2 + dy2 <= d_max_2:
                             return j
     return -1
 
@@ -1063,9 +1060,12 @@ def segment(locs, info, segmentation, kwargs={}, callback=None):
     n_seg = n_segments(info, segmentation)
     bounds = _np.linspace(0, n_frames - 1, n_seg + 1, dtype=_np.uint32)
     segments = _np.zeros((n_seg, Y, X))
-    if callback is not None:
+    if callback is None:
+        it = _trange(n_seg, desc="Generating segments", unit="segments")
+    else:
         callback(0)
-    for i in _trange(n_seg, desc="Generating segments", unit="segments"):
+        it = range(n_seg)
+    for i in it:
         segment_locs = locs[
             (locs.frame >= bounds[i]) & (locs.frame < bounds[i + 1])
         ]
@@ -1170,9 +1170,12 @@ def groupprops(locs, callback=None):
     groups = _np.recarray(n, formats=formats, names=names)
     if callback is not None:
         callback(0)
-    for i, group_id in enumerate(
-        _tqdm(group_ids, desc="Calculating group statistics", unit="Groups")
-    ):
+        it = enumerate(group_ids)
+    else:
+        it = enumerate(_tqdm(
+            group_ids, desc="Calculating group statistics", unit="Groups"
+        ))
+    for i, group_id in it:
         group_locs = locs[locs.group == group_id]
         groups["group"][i] = group_id
         groups["n_events"][i] = len(group_locs)

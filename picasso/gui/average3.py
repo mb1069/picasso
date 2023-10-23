@@ -25,7 +25,6 @@ from .. import io, lib, render
 from numpy.lib.recfunctions import stack_arrays
 
 from cmath import rect, phase
-from tqdm import tqdm
 
 import scipy.ndimage.filters
 import importlib, pkgutil
@@ -605,7 +604,7 @@ class Window(QtWidgets.QMainWindow):
                 n_groups = len(groups)
                 n_locs = len(locs)
 
-                group_index = scipy.sparse.lil_matrix((n_groups, n_locs), dtype=np.bool)
+                group_index = scipy.sparse.lil_matrix((n_groups, n_locs), dtype=bool)
                 progress = lib.ProgressDialog(
                     "Creating group index", 0, len(groups), self
                 )
@@ -744,7 +743,7 @@ class Window(QtWidgets.QMainWindow):
 
         qimage = qimage.scaled(
             self.viewxy.width(),
-            np.round(self.viewxy.height() * Y / X),
+            int(np.round(self.viewxy.height() * Y / X)),
             QtCore.Qt.KeepAspectRatioByExpanding,
         )
         pixmap = QtGui.QPixmap.fromImage(qimage)
@@ -805,7 +804,7 @@ class Window(QtWidgets.QMainWindow):
 
         qimage = qimage.scaled(
             self.viewxy.width(),
-            np.round(self.viewxy.height() * Y / X),
+            int(np.round(self.viewxy.height() * Y / X)),
             QtCore.Qt.KeepAspectRatioByExpanding,
         )
         pixmap = QtGui.QPixmap.fromImage(qimage)
@@ -874,7 +873,7 @@ class Window(QtWidgets.QMainWindow):
             plt.plot(element)
         n_groups = self.group_index[0].shape[0]
         print("Translating..")
-        for i in tqdm(range(n_groups)):
+        for i in range(n_groups):
             self.status_bar.showMessage("Group {} / {}.".format(i, n_groups))
             self.translate_group(signalimg, i, translateaxis)
 
@@ -1221,7 +1220,7 @@ class Window(QtWidgets.QMainWindow):
         CF_image_avg = image
 
         print("Convolving..")
-        for i in tqdm(range(n_groups)):
+        for i in range(n_groups):
             self.status_bar.showMessage("Group {} / {}.".format(i, n_groups))
             self.rotatexy_convolution_group(CF_image_avg, angles, i, rotaxis, proplane)
         self.updateLayout()
@@ -1360,7 +1359,7 @@ class Window(QtWidgets.QMainWindow):
         # image_half = n_pixel / 2
 
         print("Rotating..")
-        for i in tqdm(range(n_groups)):
+        for i in range(n_groups):
             self.status_bar.showMessage("Group {} / {}.".format(i, n_groups))
             self.align_group(CF_image_avg, angles, i, rotaxis, proplane)
         self.updateLayout()
@@ -1485,7 +1484,7 @@ class Window(QtWidgets.QMainWindow):
         n_channels = len(image)
 
         print("Calculating score..")
-        for i in tqdm(range(n_groups)):
+        for i in range(n_groups):
             channel_score = []
             for j in range(n_channels):
                 if self.dataset_dialog.checks[j].isChecked():
@@ -1607,21 +1606,21 @@ class Window(QtWidgets.QMainWindow):
                         alignimage = np.zeros(image.shape)
                         # CREATE ALIGNIMAGE
                         if alignaxis == "zz":
-                            alignimage[np.int(alignimage.shape[0] / 2), :] += 2
-                            alignimage[np.int(alignimage.shape[0] / 2) + 1, :] += 1
-                            alignimage[np.int(alignimage.shape[0] / 2) - 1, :] += 1
+                            alignimage[np.int64(alignimage.shape[0] / 2), :] += 2
+                            alignimage[np.int64(alignimage.shape[0] / 2) + 1, :] += 1
+                            alignimage[np.int64(alignimage.shape[0] / 2) - 1, :] += 1
                         elif alignaxis == "zy":
-                            alignimage[:, np.int(alignimage.shape[0] / 2)] += 2
-                            alignimage[:, np.int(alignimage.shape[0] / 2) + 1] += 1
-                            alignimage[:, np.int(alignimage.shape[0] / 2) - 1] += 1
+                            alignimage[:, np.int64(alignimage.shape[0] / 2)] += 2
+                            alignimage[:, np.int64(alignimage.shape[0] / 2) + 1] += 1
+                            alignimage[:, np.int64(alignimage.shape[0] / 2) - 1] += 1
                         elif alignaxis == "y":
-                            alignimage[:, np.int(alignimage.shape[1] / 2)] += 2
-                            alignimage[:, np.int(alignimage.shape[1] / 2) - 1] += 1
-                            alignimage[:, np.int(alignimage.shape[1] / 2) + 1] += 1
+                            alignimage[:, np.int64(alignimage.shape[1] / 2)] += 2
+                            alignimage[:, np.int64(alignimage.shape[1] / 2) - 1] += 1
+                            alignimage[:, np.int64(alignimage.shape[1] / 2) + 1] += 1
                         elif alignaxis == "x":
-                            alignimage[np.int(alignimage.shape[0] / 2), :] += 2
-                            alignimage[np.int(alignimage.shape[0] / 2) + 1, :] += 1
-                            alignimage[np.int(alignimage.shape[0] / 2) - 1, :] += 1
+                            alignimage[np.int64(alignimage.shape[0] / 2), :] += 2
+                            alignimage[np.int64(alignimage.shape[0] / 2) + 1, :] += 1
+                            alignimage[np.int64(alignimage.shape[0] / 2) - 1, :] += 1
 
                     all_corr[k, j] = np.sum(np.multiply(alignimage, image))
 

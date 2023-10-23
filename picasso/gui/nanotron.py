@@ -13,7 +13,6 @@ import os
 import sys
 import traceback
 import importlib, pkgutil
-from tqdm import tqdm
 import datetime
 from time import sleep
 
@@ -94,9 +93,7 @@ class Generator(QtCore.QThread):
 
             export_path = _ospath.dirname(self.export_paths[id]) + "/"
 
-            for c, pick in enumerate(
-                tqdm(np.unique(locs.group), desc="Prepare class " + str(label))
-            ):
+            for c, pick in enumerate(np.unique(locs.group)):
 
                 pick_img = nanotron.roi_to_img(
                     locs=locs,
@@ -436,7 +433,7 @@ class train_dialog(QtWidgets.QDialog):
         train_parameter_grid.addWidget(QtWidgets.QLabel("Iterations:"), 0, 0)
         self.iterations = QtWidgets.QSpinBox()
         self.iterations.resize(100, 50)
-        self.iterations.setRange(0, 1e4)
+        self.iterations.setRange(0, int(1e4))
         self.iterations.setValue(400)
         train_parameter_grid.addWidget(self.iterations, 0, 1)
         train_parameter_grid.addWidget(QtWidgets.QLabel("Learning Rate:"), 1, 0)
@@ -789,7 +786,7 @@ class train_dialog(QtWidgets.QDialog):
             msgBox.setWindowTitle("Warning")
             msgBox.setText("No all data sets loaded or names defined")
             msgBox.setInformativeText(
-                "Check if all names are set up correct."
+                "Check if all names are set up correctly."
                 " Duplicate names are not valid."
             )
             msgBox.exec_()
