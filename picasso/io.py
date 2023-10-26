@@ -1229,7 +1229,7 @@ def save_datasets(path, info, **kwargs):
 
 
 def save_locs(path, locs, info):
-    locs = _lib.ensure_sanity(locs, info)
+    # locs = _lib.ensure_sanity(locs, info)
     with _h5py.File(path, "w") as locs_file:
         locs_file.create_dataset("locs", data=locs)
     base, ext = _ospath.splitext(path)
