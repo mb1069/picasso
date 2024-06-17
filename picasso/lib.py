@@ -142,6 +142,7 @@ def _ensure_sanity_idx(locs, info):
     return idx
 
 def ensure_sanity(locs, info):
+    return locs
     # idx = _ensure_sanity_idx(locs, info)
     # # no inf or nan:
     # locs = locs[idx]

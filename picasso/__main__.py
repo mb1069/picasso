@@ -769,7 +769,6 @@ def _localize(args):
     picasso_logo()
     print("Localize - Parameters:")
     print("{:<8} {:<15} {:<10}".format("No", "Label", "Value"))
-
     if args.fit_method == "lq-gpu":
         if gausslq.gpufit_installed:
             print("GPUfit installed")
@@ -847,7 +846,6 @@ def _localize(args):
                     info, save = prompt_info()
                 info_path = base + ".yaml"
                 save_info(info_path, [info])
-
     if paths:
         print(args)
         box = args.box_side_length
@@ -991,12 +989,9 @@ def _localize(args):
             out_path = f"{base}{sfx}_locs.hdf5"
 
             idx = _lib._ensure_sanity_idx(locs, info)
-            print('A', spots.shape)
-            print(idx.shape)
             spots = spots[idx]
-            print('B', spots.shape)
+            locs = locs[idx]
 
-            print(len(locs), len(spots))
             save_locs(out_path, locs, info)
             print("File saved to {}".format(out_path))
 
@@ -1682,7 +1677,6 @@ def main():
                 _render(args)
             else:
                 from .gui import render
-
                 render.main()
         elif args.command == "average":
             if args.files:
